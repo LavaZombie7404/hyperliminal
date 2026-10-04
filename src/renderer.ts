@@ -55,16 +55,24 @@ let lastSolidCount = -1;
 let lastRoomDef: RoomDef | null = null;
 
 export function initRenderer(): THREE.WebGLRenderer {
-  renderer = new THREE.WebGLRenderer({ antialias: false });
+  const canvas = document.getElementById('c') as HTMLCanvasElement | null;
+  renderer = new THREE.WebGLRenderer({
+    antialias: false,
+    canvas: canvas || undefined,
+    failIfMajorPerformanceCaveat: false,
+  });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(1); // match the flat pixelated look
   renderer.setClearColor(0x4a5060);
   renderer.sortObjects = false; // we do manual depth sorting
 
-  // Replace canvas in DOM
-  const oldCanvas = document.getElementById('c');
-  if (oldCanvas) oldCanvas.remove();
-  document.body.appendChild(renderer.domElement);
+  // If we reused the existing canvas, just ensure the id is set
+  // Otherwise add the renderer's canvas to the DOM
+  if (!canvas) {
+    const oldCanvas = document.getElementById('c');
+    if (oldCanvas) oldCanvas.remove();
+    document.body.appendChild(renderer.domElement);
+  }
   renderer.domElement.id = 'c';
 
   scene = new THREE.Scene();
@@ -570,8 +578,10 @@ export function render(state: GameState): void {
   // Update camera from game state
   camera.position.set(state.camX, state.camY, state.camZ);
 
-  // Apply yaw and pitch using quaternion (matching original: yaw around Y, pitch around X)
-  const euler = new THREE.Euler(state.pitch, state.yaw + Math.PI, 0, 'YXZ');
+  // Apply yaw and pitch.
+  // Original: look = (sin(yaw)*cp, sp, -cos(yaw)*cp). yaw>0 = look right.
+  // Three.js Euler Y rotation is counter-clockwise (left), so negate yaw.
+  const euler = new THREE.Euler(state.pitch, -state.yaw, 0, 'YXZ');
   camera.quaternion.setFromEuler(euler);
 
   // Check if room geometry needs rebuilding

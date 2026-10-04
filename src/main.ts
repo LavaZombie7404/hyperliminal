@@ -11,9 +11,21 @@ import { initRenderer, getCanvas, render } from './renderer';
 // ── Create shared game state ──
 const state = createGameState();
 
+// Expose state for E2E testing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(window as any).__gameState = state;
+
 // ── Initialize renderer (Three.js) ──
-initRenderer();
-const canvas = getCanvas();
+let webglAvailable = true;
+try {
+  initRenderer();
+} catch {
+  console.warn('WebGL not available — running without renderer');
+  webglAvailable = false;
+}
+const canvas = webglAvailable
+  ? getCanvas()
+  : (document.getElementById('c') as HTMLCanvasElement);
 
 // ── Wire up modules to shared state ──
 setLevelState(state);
@@ -137,7 +149,7 @@ function frame(ts: number): void {
   applyGravity(state, dt);
 
   // Render
-  render(state);
+  if (webglAvailable) render(state);
 }
 
 requestAnimationFrame(frame);
