@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hyperliminal</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #6a7080; overflow: hidden; font-family: 'Courier New', monospace; user-select: none; }
+canvas { display: block; }
+#ui {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  color: #bbb; text-align: center; pointer-events: none; z-index: 10;
+}
+#level-text { font-size: 13px; opacity: 0.6; letter-spacing: 4px; }
+#hint { font-size: 11px; opacity: 0.4; margin-top: 6px; }
+#message {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  color: #ccc; font-size: 26px; letter-spacing: 6px; opacity: 0;
+  transition: opacity 1.5s; pointer-events: none; z-index: 20;
+}
+#message.show { opacity: 1; }
+#crosshair {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  width: 20px; height: 20px; pointer-events: none; z-index: 15;
+}
+#crosshair::before, #crosshair::after {
+  content: ''; position: absolute; background: rgba(255,255,255,0.35);
+}
+#crosshair::before { width: 1px; height: 100%; left: 50%; }
+#crosshair::after { width: 100%; height: 1px; top: 50%; }
+#blocker {
+  position: fixed; inset: 0; background: rgba(55,60,72,0.97);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; z-index: 100; cursor: pointer;
+}
+#blocker h1 { color: #ccc; font-size: 36px; letter-spacing: 10px; font-weight: 300; }
+#blocker p { color: rgba(255,255,255,0.35); font-size: 12px; letter-spacing: 2px; margin-top: 12px; }
+#blocker.hidden { display: none; }
+#editor {
+  position: fixed; top: 0; right: 0; width: 260px; height: 100%;
+  background: rgba(40,44,55,0.95); color: #bbb; font-size: 11px;
+  padding: 12px; overflow-y: auto; z-index: 50; display: none;
+  border-left: 1px solid rgba(255,255,255,0.1);
+}
+#editor.active { display: block; pointer-events: auto; }
+#editor h2 { font-size: 14px; letter-spacing: 3px; margin-bottom: 10px; font-weight: 300; color: #ddd; }
+#editor label { display: block; margin: 6px 0 2px; opacity: 0.7; }
+#editor input, #editor select { width: 100%; padding: 4px 6px; background: #3a3e4a; border: 1px solid #555; color: #ddd; font-family: inherit; font-size: 11px; margin-bottom: 4px; }
+#editor button { padding: 5px 10px; margin: 3px 2px; background: #4a5060; border: 1px solid #666; color: #ccc; cursor: pointer; font-family: inherit; font-size: 11px; }
+#editor button:hover { background: #5a6474; }
+#editor button.active-tool { background: #50c8a0; color: #222; }
+#editor .item-list { max-height: 150px; overflow-y: auto; margin: 6px 0; }
+#editor .item-entry { padding: 3px 6px; background: rgba(255,255,255,0.05); margin: 2px 0; display: flex; justify-content: space-between; align-items: center; }
+#editor .item-entry button { padding: 1px 6px; margin: 0; font-size: 10px; }
+#editor hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0; }
+#editor #export-box { width: 100%; height: 80px; background: #2a2e38; border: 1px solid #555; color: #aaa; font-size: 9px; font-family: monospace; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="blocker">
+  <h1>HYPERLIMINAL</h1>
+  <p>click to enter</p>
+  <p>WASD move &bull; Mouse look &bull; Click grab/drop &bull; Space jump</p>
+  <p style="margin-top:6px;opacity:0.6">look up while holding = object grows</p>
+  <p style="margin-top:6px;opacity:0.4">P = level editor</p>
+</div>
+<div id="ui">
+  <div id="level-text">LEVEL 1</div>
+  <div id="hint"></div>
+</div>
+<div id="message"></div>
+<div id="crosshair"></div>
+<div id="editor">
+  <h2>LEVEL EDITOR</h2>
+  <label>Room Width</label><input id="ed-rw" type="number" value="14" min="4" max="30">
+  <label>Room Height</label><input id="ed-rh" type="number" value="5" min="3" max="12">
+  <label>Room Depth</label><input id="ed-rd" type="number" value="30" min="8" max="80">
+  <hr>
+  <label>Place Tool</label>
+  <div>
+    <button id="ed-t-solid" onclick="edSetTool('solid')">Platform</button>
+    <button id="ed-t-pick" onclick="edSetTool('pick')">Object</button>
+    <button id="ed-t-zone" onclick="edSetTool('zone')">Zone</button>
+  </div>
+  <label>Shape</label>
+  <select id="ed-shape">
+    <option>cube</option><option>sphere</option><option>pyramid</option><option>diamond</option>
+  </select>
+  <label>Size</label><input id="ed-size" type="number" value="1.0" min="0.1" max="5" step="0.1">
+  <label>Color</label><input id="ed-color" type="color" value="#a0a8b8">
+  <label>Zone Target Size</label><input id="ed-ztarget" type="number" value="1.0" min="0.1" max="5" step="0.1">
+  <label>Zone Tolerance</label><input id="ed-ztol" type="number" value="0.3" min="0.1" max="2" step="0.05">
+  <label>Zone Label</label><input id="ed-zlabel" type="text" value="goal">
+  <hr>
+  <div><b>Placed Items</b> <button onclick="edClearAll()">Clear All</button></div>
+  <div id="ed-items" class="item-list"></div>
+  <hr>
+  <button onclick="edTestLevel()">Test Level</button>
+  <button onclick="edStopTest()">Back to Editor</button>
+  <hr>
+  <button onclick="edExport()">Export JSON</button>
+  <textarea id="export-box" readonly></textarea>
+</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const blocker = document.getElementById('blocker');
+const msgEl = document.getElementById('message');
+const levelEl = document.getElementById('level-text');
+const hintEl = document.getElementById('hint');
+
+let W, H;
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// ── Camera ──
+let camX = 0, camY = 1.6, camZ = 0;
+let yaw = 0, pitch = 0;
+let locked = false;
+const keys = {};
+const ROOM_H = 4;
+
+blocker.addEventListener('click', () => canvas.requestPointerLock());
+canvas.addEventListener('click', () => {
+  if (editorMode && edPanelOpen) {
+    edShowPanel(false);
+    canvas.requestPointerLock();
+  }
+});
+document.addEventListener('pointerlockchange', () => {
+  locked = !!document.pointerLockElement;
+  if (editorMode) {
+    // In editor mode, don't show the blocker when unlocked
+    blocker.classList.add('hidden');
+  } else {
+    blocker.classList.toggle('hidden', locked);
+  }
+});
+document.addEventListener('mousemove', e => {
+  if (!locked) return;
+  yaw += e.movementX * 0.002;
+  pitch -= e.movementY * 0.002;
+  pitch = Math.max(-1.2, Math.min(1.2, pitch));
+});
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (editorMode) return; // don't skip levels in editor
+  if (e.code === 'KeyN' && locked) { currentLevel = Math.min(currentLevel + 1, levelDefs.length - 1); loadLevel(currentLevel); }
+  if (e.code === 'KeyB' && locked) { currentLevel = Math.max(currentLevel - 1, 0); loadLevel(currentLevel); }
+});
+document.addEventListener('keyup', e => keys[e.code] = false);
+
+// ── 3D math ──
+function rotY(x, z, a) {
+  const s = Math.sin(a), c = Math.cos(a);
+  return [x * c - z * s, x * s + z * c];
+}
+
+function getLookDir() {
+  const sy = Math.sin(yaw), cy = Math.cos(yaw);
+  const sp = Math.sin(pitch), cp = Math.cos(pitch);
+  return { x: sy * cp, y: sp, z: -cy * cp };
+}
+
+function project(wx, wy, wz) {
+  let dx = wx - camX, dy = wy - camY, dz = wz - camZ;
+  let [rx, rz] = rotY(dx, dz, -yaw);
+  let ry = dy * Math.cos(-pitch) - rz * Math.sin(-pitch);
+  rz = dy * Math.sin(-pitch) + rz * Math.cos(-pitch);
+  if (rz >= -0.1) return null;
+  const f = H * 0.7;
+  return { x: W/2 + (rx / -rz) * f, y: H/2 + (ry / rz) * f, z: rz, scale: f / -rz };
+}
+
+// ── Raycast — only vertical (pitch) affects size ──
+// Cast a ray straight forward (ignoring yaw/horizontal) but using pitch
+// to hit floor or ceiling. This way looking left/right doesn't change size.
+function raycastRoom(roomDef) {
+  // Only use pitch for size calculation — ray goes forward along Z, angled by pitch
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const dirY = sp;
+  const dirForward = -cp; // forward distance component
+  let bestT = Infinity;
+
+  // Floor (y=0)
+  if (dirY < -0.001) {
+    const t = -camY / dirY;
+    if (t > 0.5 && t < bestT) bestT = t;
+  }
+  // Ceiling (y=ROOM_H)
+  if (dirY > 0.001) {
+    const t = (ROOM_H - camY) / dirY;
+    if (t > 0.5 && t < bestT) bestT = t;
+  }
+  // Back wall — use forward distance
+  if (roomDef && dirForward < -0.001) {
+    const zFar = roomDef.oz - roomDef.d;
+    const t = (zFar - camZ) / dirForward;
+    if (t > 0.5 && t < bestT) bestT = t;
+  }
+
+  if (bestT === Infinity) bestT = 20;
+  bestT = Math.min(bestT, 50);
+  return bestT;
+}
+
+// ── World objects ──
+let walls = [];
+let pickables = [];
+let zones = [];
+let heldObj = null;
+let heldOrigSize = 0; // size when picked up
+let currentLevel = 0;
+let transitioning = false;
+let currentRoomDef = null;
+
+let decor = []; // {type, ...params}
+let solids = []; // static blocks you can stand on and place objects on
+
+function addWall(x1, z1, x2, z2, y0, y1, color) {
+  walls.push({ x1, z1, x2, z2, y0, y1, color });
+}
+
+function makeRoom(w, h, d, oz) {
+  currentRoomDef = { w, h, d, oz };
+  const hw = w / 2;
+  addWall(-hw, oz, -hw, oz - d, 0, h, '#8890a0');
+  addWall(hw, oz, hw, oz - d, 0, h, '#8890a0');
+  addWall(-hw, oz - d, hw, oz - d, 0, h, '#7a8292');
+
+  // ── Auto-decorate ──
+  // Baseboard trim along walls
+  addWall(-hw, oz, -hw, oz - d, 0, 0.15, '#5a6070');
+  addWall(hw, oz, hw, oz - d, 0, 0.15, '#5a6070');
+  addWall(-hw, oz - d, hw, oz - d, 0, 0.15, '#5a6070');
+
+  // Crown molding along ceiling
+  addWall(-hw, oz, -hw, oz - d, h - 0.1, h, '#9aa0b0');
+  addWall(hw, oz, hw, oz - d, h - 0.1, h, '#9aa0b0');
+  addWall(-hw, oz - d, hw, oz - d, h - 0.1, h, '#9aa0b0');
+
+  // Wall panels (vertical strips on side walls)
+  const panelSpacing = Math.max(3, d / 6);
+  for (let z = oz - panelSpacing; z > oz - d + 1; z -= panelSpacing) {
+    // Left wall panel
+    decor.push({ type: 'panel', x: -hw + 0.01, z: z, y0: 0.3, y1: h - 0.2, vertical: true, side: 'left' });
+    // Right wall panel
+    decor.push({ type: 'panel', x: hw - 0.01, z: z, y0: 0.3, y1: h - 0.2, vertical: true, side: 'right' });
+  }
+
+  // Wall lights (glowing rectangles on walls)
+  const lightSpacing = Math.max(5, d / 4);
+  for (let z = oz - lightSpacing / 2; z > oz - d + 2; z -= lightSpacing) {
+    decor.push({ type: 'light', x: -hw + 0.02, z: z, y: h * 0.65, side: 'left' });
+    decor.push({ type: 'light', x: hw - 0.02, z: z, y: h * 0.65, side: 'right' });
+  }
+
+  // Floor stripe (center line)
+  decor.push({ type: 'floorstripe', x1: 0, z1: oz - 1, x2: 0, z2: oz - d + 1, w: 0.04 });
+
+  // Back wall decoration — horizontal band
+  decor.push({ type: 'wallband', z: oz - d - 0.02, x1: -hw + 0.5, x2: hw - 0.5, y: h * 0.55, thickness: 0.03 });
+}
+
+function addPickable(x, y, z, size, color, shape) {
+  pickables.push({ x, y, z, size, color, shape, origSize: size, vy: 0 });
+}
+
+function addSolid(x, y, z, w, h, d, color) {
+  solids.push({ x, y, z, w, h, d, color: color || '#6a7080' });
+}
+
+function addZone(x, y, z, targetSize, tolerance, label) {
+  zones.push({ x, y, z, targetSize, tolerance, label, satisfied: false });
+}
+
+// ── Levels ──
+const C = '#a0a8b8'; // cube color — lighter than walls for visibility
+const levelDefs = [
+  // 1 — Tutorial: make it big
+  {
+    hint: 'Grab the cube. Look up — it grows. Drop it in the zone.',
+    setup() {
+      makeRoom(10, 4, 22, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(-2, 0.5, -4, 0.5, C, 'cube');
+      addZone(2, 1.2, -14, 1.8, 0.5, 'make it big');
+    }
+  },
+  // 2 — Shrink
+  {
+    hint: 'The sphere is huge. Look down to shrink it.',
+    setup() {
+      makeRoom(12, 4, 25, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(0, 1.5, -8, 2.2, '#4ecdc4', 'sphere');
+      addZone(0, 0.5, -18, 0.5, 0.3, 'make it tiny');
+    }
+  },
+  // 3 — Swap sizes
+  {
+    hint: 'Swap their sizes.',
+    setup() {
+      makeRoom(14, 5, 30, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(-3, 0.4, -5, 0.4, '#ffe66d', 'pyramid');
+      addPickable(3, 1.2, -5, 2.0, C, 'cube');
+      addZone(-3, 1.2, -22, 2.0, 0.6, 'big pyramid');
+      addZone(3, 0.4, -22, 0.5, 0.3, 'small cube');
+    }
+  },
+  // 4 — Long corridor
+  {
+    hint: 'Long corridor. Perspective is everything.',
+    setup() {
+      makeRoom(6, 4, 55, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(0, 0.8, -4, 0.3, '#fd79a8', 'diamond');
+      addZone(0, 2, -45, 2.8, 0.7, 'fill the void');
+    }
+  },
+  // 5 — Three shapes
+  {
+    hint: 'Three shapes. Three zones.',
+    setup() {
+      makeRoom(16, 5, 35, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(-4, 0.5, -4, 0.4, C, 'cube');
+      addPickable(0, 1.5, -4, 1.5, '#fab1a0', 'sphere');
+      addPickable(4, 0.8, -4, 0.8, '#00cec9', 'diamond');
+      addZone(-4, 1.5, -26, 1.6, 0.4, 'big cube');
+      addZone(0, 0.5, -26, 0.5, 0.3, 'tiny sphere');
+      addZone(4, 2, -26, 2.2, 0.5, 'large diamond');
+    }
+  },
+  // 6 — Tiny room, giant object
+  {
+    hint: 'A big sphere in a tiny room. Make it fit.',
+    setup() {
+      makeRoom(5, 3, 10, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(0, 1.5, -5, 2.5, '#74b9ff', 'sphere');
+      addZone(0, 0.3, -7, 0.3, 0.2, 'microscopic');
+    }
+  },
+  // 7 — Climb to reach the zone
+  {
+    hint: 'The zone is on the ledge. Use the blocks to climb up.',
+    setup() {
+      makeRoom(14, 7, 30, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      // Solid ledges to climb
+      addSolid(0, 0, -10, 4, 1.2, 4, '#6a7080');      // step 1
+      addSolid(0, 0, -16, 4, 2.5, 4, '#5e6676');      // step 2
+      addSolid(0, 0, -22, 6, 4.0, 5, '#545c6c');      // top platform
+      // Pickable to place in zone
+      addPickable(2, 0.5, -4, 0.5, '#00cec9', 'diamond');
+      // Zone on top of highest platform
+      addZone(0, 4.6, -22, 0.6, 0.3, 'up here');
+    }
+  },
+  // 8 — Narrow corridor, precise sizing
+  {
+    hint: 'Thread the needle.',
+    setup() {
+      makeRoom(4, 3, 40, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(0, 0.5, -3, 0.5, '#dfe6e9', 'cube');
+      addZone(0, 1.0, -32, 1.0, 0.2, 'exact fit');
+    }
+  },
+  // 9 — Diamond rain — 4 diamonds, 4 zones
+  {
+    hint: 'Four diamonds. Four sizes. Sort them.',
+    setup() {
+      makeRoom(18, 5, 35, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(-6, 0.5, -5, 0.5, '#00cec9', 'diamond');
+      addPickable(-2, 0.5, -5, 0.5, '#55efc4', 'diamond');
+      addPickable(2, 0.5, -5, 0.5, '#fd79a8', 'diamond');
+      addPickable(6, 0.5, -5, 0.5, '#a29bfe', 'diamond');
+      addZone(-6, 0.4, -28, 0.4, 0.2, 'tiny');
+      addZone(-2, 0.8, -28, 0.8, 0.25, 'small');
+      addZone(2, 1.4, -28, 1.4, 0.35, 'medium');
+      addZone(6, 2.2, -28, 2.2, 0.45, 'large');
+    }
+  },
+  // 10 — Platform puzzle
+  {
+    hint: 'Climb the platforms. Resize the sphere to fit the zone at the top.',
+    setup() {
+      makeRoom(14, 8, 35, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addSolid(-4, 0, -8, 5, 1.5, 5, '#6a7080');
+      addSolid(0, 0, -14, 5, 3.0, 5, '#5e6676');
+      addSolid(4, 0, -20, 5, 4.5, 5, '#545c6c');
+      addSolid(0, 0, -26, 8, 6.0, 5, '#4c5464');
+      addPickable(-2, 1.0, -4, 1.0, '#fd79a8', 'sphere');
+      addZone(0, 6.5, -26, 0.4, 0.25, 'the top');
+    }
+  },
+  // 11 — All spheres, matching sizes
+  {
+    hint: 'Make all three spheres the same size.',
+    setup() {
+      makeRoom(14, 4, 30, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(-4, 0.3, -5, 0.3, '#fab1a0', 'sphere');
+      addPickable(0, 1.0, -5, 1.0, '#74b9ff', 'sphere');
+      addPickable(4, 2.0, -5, 2.0, '#4ecdc4', 'sphere');
+      addZone(-4, 1.0, -22, 1.0, 0.3, 'medium');
+      addZone(0, 1.0, -22, 1.0, 0.3, 'medium');
+      addZone(4, 1.0, -22, 1.0, 0.3, 'medium');
+    }
+  },
+  // 12 — Pyramid gauntlet
+  {
+    hint: 'Big pyramids from small beginnings.',
+    setup() {
+      makeRoom(8, 4, 45, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(-2, 0.3, -4, 0.3, '#ffe66d', 'pyramid');
+      addPickable(2, 0.3, -4, 0.3, '#ffeaa7', 'pyramid');
+      addZone(-2, 2.5, -35, 2.5, 0.6, 'giant');
+      addZone(2, 2.5, -35, 2.5, 0.6, 'giant');
+    }
+  },
+  // 13 — Mixed bag close quarters
+  {
+    hint: 'Everything must shrink.',
+    setup() {
+      makeRoom(8, 3, 15, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(-2, 1.5, -5, 1.5, C, 'cube');
+      addPickable(0, 1.2, -5, 1.2, '#fd79a8', 'diamond');
+      addPickable(2, 1.8, -5, 1.8, '#4ecdc4', 'sphere');
+      addZone(-2, 0.3, -10, 0.3, 0.15, 'tiny');
+      addZone(0, 0.3, -10, 0.3, 0.15, 'tiny');
+      addZone(2, 0.3, -10, 0.3, 0.15, 'tiny');
+    }
+  },
+  // 14 — Two platforms, bridge the gap
+  {
+    hint: 'Two ledges. Grow a cube to bridge the gap. Carry the sphere across.',
+    setup() {
+      makeRoom(20, 5, 35, 2);
+      camX = -7; camY = 3.6; camZ = -10; yaw = 0; pitch = 0;
+      // Two raised platforms with a gap
+      addSolid(-7, 0, -15, 6, 2.0, 12, '#6a7080');
+      addSolid(7, 0, -15, 6, 2.0, 12, '#6a7080');
+      // Pickable cube — grow it to make a bridge between platforms
+      addPickable(-5, 2.5, -12, 0.5, C, 'cube');
+      addPickable(-5, 2.5, -16, 0.4, '#55efc4', 'sphere');
+      addZone(7, 2.6, -15, 0.5, 0.3, 'across');
+    }
+  },
+  // 15 — Extreme corridor
+  {
+    hint: 'The longest hallway. Patience.',
+    setup() {
+      makeRoom(4, 3, 80, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(0, 0.2, -3, 0.2, '#a29bfe', 'diamond');
+      addZone(0, 3.5, -70, 3.5, 0.8, 'massive');
+    }
+  },
+  // 16 — Reverse — big to small, precise
+  {
+    hint: 'The giant must become a speck.',
+    setup() {
+      makeRoom(20, 6, 30, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(0, 3.0, -10, 3.0, '#fab1a0', 'sphere');
+      addZone(0, 0.2, -20, 0.2, 0.12, 'speck');
+    }
+  },
+  // 17 — Five cubes ascending
+  {
+    hint: 'Build a staircase of sizes.',
+    setup() {
+      makeRoom(20, 5, 35, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      for (let i = 0; i < 5; i++) {
+        addPickable(-8 + i * 4, 0.5, -5, 0.5, C, 'cube');
+        const target = 0.4 + i * 0.5;
+        addZone(-8 + i * 4, target, -28, target, 0.2, ['xs','s','m','l','xl'][i]);
+      }
+    }
+  },
+  // 18 — Spiral ascent
+  {
+    hint: 'Spiral up the tower. Shrink the diamond at the top.',
+    setup() {
+      makeRoom(12, 10, 30, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      // Spiral platforms — wider and closer together
+      addSolid(-3, 0, -6, 6, 1.5, 5, '#626a7a');
+      addSolid(3, 0, -10, 6, 3.0, 5, '#6a7080');
+      addSolid(-3, 0, -14, 6, 4.5, 5, '#5e6676');
+      addSolid(3, 0, -18, 6, 6.0, 5, '#545c6c');
+      addSolid(0, 0, -22, 8, 7.5, 5, '#4c5464');
+      addPickable(0, 1.0, -4, 1.0, '#a29bfe', 'diamond');
+      addZone(0, 8.0, -22, 0.3, 0.35, 'top');
+    }
+  },
+  // 19 — The gallery — 6 objects
+  {
+    hint: 'The gallery. Each piece has its place.',
+    setup() {
+      makeRoom(24, 5, 40, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      const shapes = ['cube','sphere','pyramid','diamond','cube','sphere'];
+      const colors = [C,'#4ecdc4','#ffe66d','#fd79a8',C,'#fab1a0'];
+      const sizes = [0.4, 1.8, 0.6, 2.0, 1.2, 0.3];
+      const targets = [1.6, 0.4, 2.0, 0.5, 0.5, 1.8];
+      for (let i = 0; i < 6; i++) {
+        addPickable(-10 + i * 4, sizes[i], -6, sizes[i], colors[i], shapes[i]);
+        addZone(-10 + i * 4, targets[i], -32, targets[i], 0.35, shapes[i]);
+      }
+    }
+  },
+  // 20 — Final: one cube, one impossible zone
+  {
+    hint: 'The last room. Trust your eyes.',
+    setup() {
+      makeRoom(10, 4, 70, 2);
+      camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+      addPickable(0, 0.3, -3, 0.3, C, 'cube');
+      addZone(0, 3.2, -60, 3.2, 0.6, 'perceive');
+    }
+  }
+];
+
+function clearLevel() { walls = []; pickables = []; zones = []; decor = []; solids = []; heldObj = null; currentRoomDef = null; camVY = 0; onGround = false; }
+function loadLevel(idx) {
+  if (idx >= levelDefs.length) {
+    showMessage('all levels complete — editor unlocked!', 3000);
+    setTimeout(edEnter, 3500);
+    return;
+  }
+  clearLevel();
+  levelDefs[idx].setup();
+  hintEl.textContent = levelDefs[idx].hint;
+  levelEl.textContent = 'LEVEL ' + (idx + 1);
+}
+
+function showMessage(t, dur) {
+  msgEl.textContent = t; msgEl.classList.add('show');
+  setTimeout(() => msgEl.classList.remove('show'), dur || 2000);
+}
+
+// ── Pick / drop — TRUE forced perspective ──
+document.addEventListener('mousedown', e => {
+  if (!locked || transitioning || e.button !== 0) return;
+  if (heldObj) {
+    // Drop: object keeps its current size (forced perspective!)
+    heldObj.vy = 0;
+    heldObj = null;
+    setTimeout(checkWin, 600);
+  } else {
+    // Pick up: find closest pickable near screen center
+    let best = null, bestD = Infinity;
+    for (const p of pickables) {
+      const pr = project(p.x, p.y, p.z);
+      if (!pr) continue;
+      const dx = pr.x - W/2, dy = pr.y - H/2;
+      const screenR = p.size * pr.scale;
+      if (dx*dx + dy*dy < (screenR + 30) * (screenR + 30)) {
+        if (-pr.z < bestD) { bestD = -pr.z; best = p; }
+      }
+    }
+    if (best) {
+      heldObj = best;
+      heldOrigSize = best.size;
+      heldBaseDist = bestD;
+    }
+  }
+});
+
+function checkWin() {
+  let allGood = true;
+  for (const z of zones) {
+    let found = false;
+    for (const p of pickables) {
+      const dx = p.x - z.x, dy = p.y - z.y, dz = p.z - z.z;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      const sizeOk = Math.abs(p.size - z.targetSize) <= z.tolerance;
+      if (dist < z.targetSize + 1.5 && sizeOk) { found = true; break; }
+    }
+    z.satisfied = found;
+    if (!found) allGood = false;
+  }
+  if (allGood && zones.length > 0) {
+    transitioning = true;
+    showMessage('perception shifted', 1800);
+    setTimeout(() => { currentLevel++; loadLevel(currentLevel); transitioning = false; }, 2200);
+  }
+}
+
+// ── Movement + standing on objects ──
+const PLAYER_H = 1.6;
+const PLAYER_R = 0.3;
+let camVY = 0;
+let onGround = false;
+
+function move(dt) {
+  if (!locked) return;
+  let mx = 0, mz = 0;
+  if (keys['KeyW'] || keys['ArrowUp']) mz -= 1;
+  if (keys['KeyS'] || keys['ArrowDown']) mz += 1;
+  if (keys['KeyA'] || keys['ArrowLeft']) mx -= 1;
+  if (keys['KeyD'] || keys['ArrowRight']) mx += 1;
+  const len = Math.sqrt(mx*mx + mz*mz) || 1;
+  mx /= len; mz /= len;
+  const [rmx, rmz] = rotY(mx, mz, yaw);
+  const spd = (!onGround && (mx || mz) ? 11 : 6) * dt;
+  camX += rmx * spd;
+  camZ += rmz * spd;
+
+  // Gravity for player
+  camVY -= 18 * dt;
+  camY += camVY * dt;
+
+  // Check floor
+  let floorY = PLAYER_H; // base floor
+
+  // Check standing on pickable objects
+  for (const p of pickables) {
+    if (p === heldObj) continue;
+    const dx = camX - p.x;
+    const dz = camZ - p.z;
+    const objR = p.size;
+    if (Math.abs(dx) < objR + PLAYER_R && Math.abs(dz) < objR + PLAYER_R) {
+      const topY = p.y + p.size + PLAYER_H;
+      if (camY <= topY && camY > topY - 1.0 && camVY <= 0) {
+        floorY = Math.max(floorY, topY);
+      }
+    }
+  }
+
+  // Check standing on solid blocks
+  for (const s of solids) {
+    const dx = camX - s.x, dz = camZ - s.z;
+    if (Math.abs(dx) < s.w / 2 + PLAYER_R && Math.abs(dz) < s.d / 2 + PLAYER_R) {
+      const topY = s.y + s.h + PLAYER_H;
+      if (camY <= topY && camY > topY - 1.0 && camVY <= 0) {
+        floorY = Math.max(floorY, topY);
+      }
+    }
+  }
+
+  if (camY <= floorY) {
+    camY = floorY;
+    camVY = 0;
+    onGround = true;
+  } else {
+    onGround = false;
+  }
+
+  // Jump
+  if (keys['Space'] && onGround) {
+    camVY = 6;
+    onGround = false;
+  }
+}
+
+// ── Update held: Superliminal mechanic ──
+let heldBaseDist = 4;
+function updateHeld() {
+  if (!heldObj) return;
+
+  // Pitch-based scaling
+  const t = (pitch + 1.2) / 2.4; // 0 (down) to 1 (up)
+  const scale = 0.05 + t * t * t * 5.0;
+  heldObj.size = heldOrigSize * scale;
+
+  // Horizontal position: always at base distance using YAW only
+  // This keeps aiming predictable — looking left puts it left, always same distance
+  const sx = Math.sin(yaw), cx = Math.cos(yaw);
+  const horzDist = heldBaseDist;
+
+  // Vertical offset from pitch, scaled so looking up = higher
+  const vertOffset = Math.sin(pitch) * heldBaseDist;
+
+  // Scale distance for apparent size preservation
+  // Object moves further when bigger, closer when smaller
+  const scaledDist = heldBaseDist * scale;
+
+  // Blend: horizontal aim stays predictable, depth adjusts for size illusion
+  const dir = getLookDir();
+  heldObj.x = camX + dir.x * scaledDist;
+  heldObj.y = camY + dir.y * scaledDist;
+  heldObj.z = camZ + dir.z * scaledDist;
+
+  // Clamp to room bounds so it doesn't fly through walls
+  if (currentRoomDef) {
+    const hw = currentRoomDef.w / 2 - heldObj.size * 0.5;
+    const zNear = currentRoomDef.oz - heldObj.size * 0.5;
+    const zFar = currentRoomDef.oz - currentRoomDef.d + heldObj.size * 0.5;
+    heldObj.x = Math.max(-hw, Math.min(hw, heldObj.x));
+    heldObj.z = Math.max(zFar, Math.min(zNear, heldObj.z));
+    heldObj.y = Math.max(heldObj.size * 0.5, Math.min(currentRoomDef.h || ROOM_H, heldObj.y));
+  }
+}
+
+// ── Gravity ──
+function getFloorFor(p) {
+  let floor = p.size; // base floor (center at size height)
+  // Check solids
+  for (const s of solids) {
+    const dx = p.x - s.x, dz = p.z - s.z;
+    if (Math.abs(dx) < s.w / 2 + p.size && Math.abs(dz) < s.d / 2 + p.size) {
+      const topY = s.y + s.h + p.size;
+      if (topY > floor) floor = topY;
+    }
+  }
+  // Check other pickables (stacking)
+  for (const o of pickables) {
+    if (o === p || o === heldObj) continue;
+    const dx = p.x - o.x, dz = p.z - o.z;
+    if (Math.abs(dx) < o.size + p.size * 0.5 && Math.abs(dz) < o.size + p.size * 0.5) {
+      const topY = o.y + o.size + p.size;
+      if (topY > floor && p.y >= topY - 0.5) floor = topY;
+    }
+  }
+  return floor;
+}
+
+function applyGravity(dt) {
+  const gravity = 14;
+  for (const p of pickables) {
+    if (p === heldObj) { p.vy = 0; continue; }
+    const floorY = getFloorFor(p);
+    if (p.y > floorY + 0.01) {
+      p.vy -= gravity * dt;
+      p.y += p.vy * dt;
+      if (p.y <= floorY) {
+        p.y = floorY;
+        p.vy = Math.abs(p.vy) > 1.5 ? -p.vy * 0.25 : 0;
+      }
+    } else {
+      p.y = floorY;
+      p.vy = 0;
+    }
+  }
+}
+
+// ── Rendering ──
+function drawQuad(p1, p2, p3, p4, color) {
+  if (!p1 || !p2 || !p3 || !p4) return;
+  const avgZ = (p1.z + p2.z + p3.z + p4.z) / 4;
+  const shade = Math.max(0.2, Math.min(1, 4 / -avgZ));
+  ctx.fillStyle = color;
+  ctx.globalAlpha = shade;
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+  ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.04)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawFloor() {
+  const step = 2;
+  for (let x = -16; x < 16; x += step) {
+    for (let z = -60; z < 4; z += step) {
+      const dark = ((Math.floor(x/step) + Math.floor(z/step)) & 1) === 0;
+      drawQuad(
+        project(x, 0, z), project(x+step, 0, z),
+        project(x+step, 0, z+step), project(x, 0, z+step),
+        dark ? '#505868' : '#5c6474'
+      );
+    }
+  }
+}
+
+function drawCeiling() {
+  const step = 3;
+  for (let x = -16; x < 16; x += step) {
+    for (let z = -60; z < 4; z += step) {
+      drawQuad(
+        project(x, ROOM_H, z), project(x+step, ROOM_H, z),
+        project(x+step, ROOM_H, z+step), project(x, ROOM_H, z+step),
+        '#70788a'
+      );
+    }
+  }
+}
+
+function drawWalls() {
+  for (const w of walls) {
+    drawQuad(
+      project(w.x1, w.y1, w.z1), project(w.x2, w.y1, w.z2),
+      project(w.x2, w.y0, w.z2), project(w.x1, w.y0, w.z1),
+      w.color
+    );
+  }
+}
+
+function drawSolids() {
+  for (const s of solids) {
+    const hw = s.w / 2, hd = s.d / 2;
+    const x = s.x, y0 = s.y, y1 = s.y + s.h, z = s.z;
+    // Top face
+    drawQuad(
+      project(x - hw, y1, z - hd), project(x + hw, y1, z - hd),
+      project(x + hw, y1, z + hd), project(x - hw, y1, z + hd),
+      lighten(s.color, 10)
+    );
+    // Front face
+    drawQuad(
+      project(x - hw, y1, z + hd), project(x + hw, y1, z + hd),
+      project(x + hw, y0, z + hd), project(x - hw, y0, z + hd),
+      s.color
+    );
+    // Back face
+    drawQuad(
+      project(x + hw, y1, z - hd), project(x - hw, y1, z - hd),
+      project(x - hw, y0, z - hd), project(x + hw, y0, z - hd),
+      darken(s.color, 8)
+    );
+    // Left face
+    drawQuad(
+      project(x - hw, y1, z - hd), project(x - hw, y1, z + hd),
+      project(x - hw, y0, z + hd), project(x - hw, y0, z - hd),
+      darken(s.color, 5)
+    );
+    // Right face
+    drawQuad(
+      project(x + hw, y1, z + hd), project(x + hw, y1, z - hd),
+      project(x + hw, y0, z - hd), project(x + hw, y0, z + hd),
+      darken(s.color, 12)
+    );
+  }
+}
+
+function drawDecor(time) {
+  for (const d of decor) {
+    if (d.type === 'panel') {
+      // Vertical line on wall
+      const p1 = project(d.x, d.y1, d.z);
+      const p2 = project(d.x, d.y0, d.z);
+      if (!p1 || !p2) continue;
+      ctx.strokeStyle = 'rgba(0,0,0,0.04)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    } else if (d.type === 'light') {
+      // Glowing rectangle on wall
+      const hw = 0.15, hh = 0.25;
+      const p1 = project(d.x, d.y + hh, d.z - hw);
+      const p2 = project(d.x, d.y + hh, d.z + hw);
+      const p3 = project(d.x, d.y - hh, d.z + hw);
+      const p4 = project(d.x, d.y - hh, d.z - hw);
+      if (!p1 || !p2 || !p3 || !p4) continue;
+      const avgZ = (p1.z + p3.z) / 2;
+      const brightness = Math.max(0.1, Math.min(1, 4 / -avgZ));
+      // Glow
+      const cx = (p1.x + p3.x) / 2, cy = (p1.y + p3.y) / 2;
+      const r = Math.abs(p1.y - p3.y) * 1.5;
+      if (r > 2) {
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grad.addColorStop(0, `rgba(255,245,220,${0.12 * brightness})`);
+        grad.addColorStop(1, 'rgba(255,245,220,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      }
+      // Light panel
+      ctx.fillStyle = `rgba(255,250,235,${0.5 * brightness})`;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
+      ctx.closePath();
+      ctx.fill();
+    } else if (d.type === 'floorstripe') {
+      // Thin line on floor
+      const p1 = project(d.x1 - d.w, 0.01, d.z1);
+      const p2 = project(d.x1 + d.w, 0.01, d.z1);
+      const p3 = project(d.x2 + d.w, 0.01, d.z2);
+      const p4 = project(d.x2 - d.w, 0.01, d.z2);
+      if (!p1 || !p2 || !p3 || !p4) continue;
+      ctx.fillStyle = 'rgba(0,0,0,0.03)';
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
+      ctx.closePath();
+      ctx.fill();
+    } else if (d.type === 'wallband') {
+      // Horizontal stripe on back wall
+      const th = d.thickness;
+      const p1 = project(d.x1, d.y + th, d.z);
+      const p2 = project(d.x2, d.y + th, d.z);
+      const p3 = project(d.x2, d.y - th, d.z);
+      const p4 = project(d.x1, d.y - th, d.z);
+      if (!p1 || !p2 || !p3 || !p4) continue;
+      ctx.fillStyle = 'rgba(0,0,0,0.03)';
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+}
+
+function drawShape(p, pr) {
+  if (!pr) return;
+  const s = p.size * pr.scale;
+  if (s < 0.5) return;
+  const shade = Math.max(0.3, Math.min(1, 5 / -pr.z));
+  ctx.globalAlpha = shade;
+
+  // Floor shadow
+  const fp = project(p.x, 0.01, p.z);
+  if (fp) {
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.beginPath();
+    ctx.ellipse(fp.x, fp.y, Math.min(s * 0.7, 200), Math.min(s * 0.15, 40), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = p.color;
+  if (p.shape === 'cube') {
+    // Front face
+    ctx.fillRect(pr.x - s, pr.y - s, s * 2, s * 2);
+    // Top face
+    ctx.fillStyle = lighten(p.color, 15);
+    ctx.beginPath();
+    ctx.moveTo(pr.x - s, pr.y - s);
+    ctx.lineTo(pr.x - s * 0.65, pr.y - s * 1.3);
+    ctx.lineTo(pr.x + s * 1.35, pr.y - s * 1.3);
+    ctx.lineTo(pr.x + s, pr.y - s);
+    ctx.closePath();
+    ctx.fill();
+    // Right face
+    ctx.fillStyle = darken(p.color, 15);
+    ctx.beginPath();
+    ctx.moveTo(pr.x + s, pr.y - s);
+    ctx.lineTo(pr.x + s * 1.35, pr.y - s * 1.3);
+    ctx.lineTo(pr.x + s * 1.35, pr.y + s * 0.7);
+    ctx.lineTo(pr.x + s, pr.y + s);
+    ctx.closePath();
+    ctx.fill();
+    // Front face shading
+    ctx.fillStyle = 'rgba(0,0,0,0.04)';
+    ctx.fillRect(pr.x - s, pr.y, s * 2, s);
+  } else if (p.shape === 'sphere') {
+    ctx.beginPath();
+    ctx.arc(pr.x, pr.y, s, 0, Math.PI * 2);
+    ctx.fill();
+    const grad = ctx.createRadialGradient(pr.x - s*0.3, pr.y - s*0.3, s*0.05, pr.x, pr.y, s);
+    grad.addColorStop(0, 'rgba(255,255,255,0.3)');
+    grad.addColorStop(0.7, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.12)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(pr.x, pr.y, s, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (p.shape === 'pyramid') {
+    // Left face
+    ctx.beginPath();
+    ctx.moveTo(pr.x, pr.y - s * 1.3);
+    ctx.lineTo(pr.x - s, pr.y + s);
+    ctx.lineTo(pr.x, pr.y + s * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    // Right face (darker)
+    ctx.fillStyle = darken(p.color, 20);
+    ctx.beginPath();
+    ctx.moveTo(pr.x, pr.y - s * 1.3);
+    ctx.lineTo(pr.x + s, pr.y + s);
+    ctx.lineTo(pr.x, pr.y + s * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  } else if (p.shape === 'diamond') {
+    // Top half (lighter)
+    ctx.beginPath();
+    ctx.moveTo(pr.x, pr.y - s * 1.4);
+    ctx.lineTo(pr.x + s, pr.y);
+    ctx.lineTo(pr.x - s, pr.y);
+    ctx.closePath();
+    ctx.fill();
+    // Bottom half (darker)
+    ctx.fillStyle = darken(p.color, 15);
+    ctx.beginPath();
+    ctx.moveTo(pr.x - s, pr.y);
+    ctx.lineTo(pr.x + s, pr.y);
+    ctx.lineTo(pr.x, pr.y + s * 1.4);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function lighten(hex, amt) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  r = Math.min(255, r + amt); g = Math.min(255, g + amt); b = Math.min(255, b + amt);
+  return `rgb(${r},${g},${b})`;
+}
+function darken(hex, amt) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  r = Math.max(0, r - amt); g = Math.max(0, g - amt); b = Math.max(0, b - amt);
+  return `rgb(${r},${g},${b})`;
+}
+
+function drawZone(z, time) {
+  const pr = project(z.x, z.y, z.z);
+  if (!pr) return;
+  const s = z.targetSize * pr.scale;
+  const pulse = Math.sin(time * 2.5) * 0.12 + 0.88;
+  const sp = s * pulse;
+
+  ctx.strokeStyle = z.satisfied ? 'rgba(80,200,160,0.8)' : 'rgba(80,200,160,0.35)';
+  ctx.lineWidth = z.satisfied ? 2.5 : 1;
+  ctx.setLineDash(z.satisfied ? [] : [5, 5]);
+  ctx.strokeRect(pr.x - sp, pr.y - sp, sp * 2, sp * 2);
+  ctx.fillStyle = z.satisfied ? 'rgba(80,200,160,0.12)' : 'rgba(80,200,160,0.04)';
+  ctx.fillRect(pr.x - sp, pr.y - sp, sp * 2, sp * 2);
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = z.satisfied ? 'rgba(60,160,130,0.7)' : 'rgba(60,160,130,0.35)';
+  ctx.font = `${Math.max(9, Math.min(13, s * 0.25))}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText(z.label, pr.x, pr.y + sp + 14);
+}
+
+function depthOf(obj) {
+  let dx = obj.x - camX, dz = obj.z - camZ;
+  let [, rz] = rotY(dx, dz, -yaw);
+  return rz;
+}
+
+// ── Main loop ──
+let lastTime = 0, time = 0;
+
+function frame(ts) {
+  requestAnimationFrame(frame);
+  const dt = Math.min((ts - lastTime) / 1000, 0.1);
+  lastTime = ts;
+  time += dt;
+
+  move(dt);
+  updateHeld();
+  applyGravity(dt);
+
+  // Clear — bright room color
+  ctx.fillStyle = '#4a5060';
+  ctx.fillRect(0, 0, W, H);
+
+  drawCeiling();
+  drawFloor();
+  drawWalls();
+  drawSolids();
+  drawDecor(time);
+
+  // Depth sort
+  const drawList = [];
+  for (const z of zones) drawList.push({ type: 'zone', obj: z, depth: depthOf(z) });
+  for (const p of pickables) drawList.push({ type: 'pick', obj: p, depth: depthOf(p) });
+  drawList.sort((a, b) => a.depth - b.depth);
+
+  for (const item of drawList) {
+    if (item.type === 'zone') drawZone(item.obj, time);
+    else {
+      const pr = project(item.obj.x, item.obj.y, item.obj.z);
+      if (pr) drawShape(item.obj, pr);
+    }
+  }
+
+  if (heldObj) {
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '10px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(`size: ${heldObj.size.toFixed(1)}`, W/2, H/2 + 35);
+  }
+}
+
+loadLevel(0);
+requestAnimationFrame(frame);
+
+const ambMsgs = ['is it big or just far?','perspective defines reality','what you see is what it becomes','look closer. or further.','nothing is as it seems'];
+setInterval(() => {
+  if (!transitioning && locked && Math.random() < 0.25) {
+    const m = ambMsgs[Math.floor(Math.random() * ambMsgs.length)];
+    hintEl.style.transition = 'opacity 1s'; hintEl.style.opacity = '0';
+    setTimeout(() => { hintEl.textContent = m; hintEl.style.opacity = '0.4'; }, 1000);
+  }
+}, 12000);
+
+// ── Level Editor ──
+const editorEl = document.getElementById('editor');
+let editorMode = false;
+let edTool = 'solid'; // 'solid', 'pick', 'zone'
+let edItems = []; // {type, params}
+
+let edPanelOpen = false;
+
+function edEnter() {
+  editorMode = true;
+  edShowPanel(true);
+  levelEl.textContent = 'EDITOR';
+  hintEl.textContent = 'E = toggle panel | F to place';
+  edBuildRoom();
+}
+
+function edShowPanel(show) {
+  edPanelOpen = show;
+  editorEl.classList.toggle('active', show);
+  if (show) {
+    // Release pointer lock so user can interact with UI
+    document.exitPointerLock();
+  }
+}
+
+
+function edSetTool(t) {
+  edTool = t;
+  document.querySelectorAll('#editor button[id^="ed-t-"]').forEach(b => b.classList.remove('active-tool'));
+  const btn = document.getElementById('ed-t-' + t);
+  if (btn) btn.classList.add('active-tool');
+}
+
+function edBuildRoom() {
+  const rw = parseFloat(document.getElementById('ed-rw').value) || 14;
+  const rh = parseFloat(document.getElementById('ed-rh').value) || 5;
+  const rd = parseFloat(document.getElementById('ed-rd').value) || 30;
+  clearLevel();
+  makeRoom(rw, rh, rd, 2);
+  camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+  // Re-place all items
+  for (const item of edItems) {
+    if (item.type === 'solid') addSolid(item.x, 0, item.z, item.w, item.h, item.d, item.color);
+    else if (item.type === 'pick') addPickable(item.x, item.size, item.z, item.size, item.color, item.shape);
+    else if (item.type === 'zone') addZone(item.x, item.targetSize, item.z, item.targetSize, item.tolerance, item.label);
+  }
+}
+
+function edRebuild() {
+  if (!editorMode) return;
+  const rw = parseFloat(document.getElementById('ed-rw').value) || 14;
+  const rh = parseFloat(document.getElementById('ed-rh').value) || 5;
+  const rd = parseFloat(document.getElementById('ed-rd').value) || 30;
+  const cx = camX, cy = camY, cz = camZ, cy2 = yaw, cp2 = pitch;
+  clearLevel();
+  makeRoom(rw, rh, rd, 2);
+  camX = cx; camY = cy; camZ = cz; yaw = cy2; pitch = cp2;
+  for (const item of edItems) {
+    if (item.type === 'solid') addSolid(item.x, 0, item.z, item.w, item.h, item.d, item.color);
+    else if (item.type === 'pick') addPickable(item.x, item.size, item.z, item.size, item.color, item.shape);
+    else if (item.type === 'zone') addZone(item.x, item.targetSize, item.z, item.targetSize, item.tolerance, item.label);
+  }
+}
+
+// Room size inputs trigger rebuild
+['ed-rw', 'ed-rh', 'ed-rd'].forEach(id => {
+  document.getElementById(id).addEventListener('change', edRebuild);
+});
+
+// Place item with F key when in editor mode
+function edPlace() {
+  const dir = getLookDir();
+  const dist = 5;
+  const px = camX + dir.x * dist;
+  const pz = camZ + dir.z * dist;
+
+  if (edTool === 'solid') {
+    const sz = parseFloat(document.getElementById('ed-size').value) || 1;
+    const col = document.getElementById('ed-color').value;
+    const item = { type: 'solid', x: Math.round(px), z: Math.round(pz), w: sz * 3, h: sz * 1.5, d: sz * 3, color: col };
+    edItems.push(item);
+    addSolid(item.x, 0, item.z, item.w, item.h, item.d, item.color);
+  } else if (edTool === 'pick') {
+    const sz = parseFloat(document.getElementById('ed-size').value) || 1;
+    const col = document.getElementById('ed-color').value;
+    const shape = document.getElementById('ed-shape').value;
+    const item = { type: 'pick', x: Math.round(px * 2) / 2, z: Math.round(pz * 2) / 2, size: sz, color: col, shape };
+    edItems.push(item);
+    addPickable(item.x, item.size, item.z, item.size, item.color, item.shape);
+  } else if (edTool === 'zone') {
+    const ts = parseFloat(document.getElementById('ed-ztarget').value) || 1;
+    const tol = parseFloat(document.getElementById('ed-ztol').value) || 0.3;
+    const lbl = document.getElementById('ed-zlabel').value || 'goal';
+    const item = { type: 'zone', x: Math.round(px * 2) / 2, z: Math.round(pz * 2) / 2, targetSize: ts, tolerance: tol, label: lbl };
+    edItems.push(item);
+    addZone(item.x, item.targetSize, item.z, item.targetSize, item.tolerance, item.label);
+  }
+  edUpdateList();
+}
+
+function edUpdateList() {
+  const el = document.getElementById('ed-items');
+  el.innerHTML = edItems.map((it, i) => {
+    let desc = it.type;
+    if (it.type === 'pick') desc = it.shape;
+    if (it.type === 'zone') desc = 'zone: ' + it.label;
+    if (it.type === 'solid') desc = 'platform';
+    return `<div class="item-entry"><span>${desc} (${it.x}, ${it.z})</span><button onclick="edRemove(${i})">x</button></div>`;
+  }).join('');
+}
+
+function edRemove(i) {
+  edItems.splice(i, 1);
+  edRebuild();
+  edUpdateList();
+}
+
+function edClearAll() {
+  edItems = [];
+  edRebuild();
+  edUpdateList();
+}
+
+function edTestLevel() {
+  edShowPanel(false);
+  canvas.requestPointerLock();
+  levelEl.textContent = 'EDITOR TEST';
+  hintEl.textContent = 'Testing... Press E to return to editor.';
+  camX = 0; camY = 1.6; camZ = 1; yaw = 0; pitch = 0;
+}
+
+function edStopTest() {
+  edShowPanel(true);
+  levelEl.textContent = 'EDITOR';
+  hintEl.textContent = 'E = toggle panel | F to place';
+  edRebuild();
+}
+
+function edExport() {
+  const rw = parseFloat(document.getElementById('ed-rw').value) || 14;
+  const rh = parseFloat(document.getElementById('ed-rh').value) || 5;
+  const rd = parseFloat(document.getElementById('ed-rd').value) || 30;
+  const data = { room: { w: rw, h: rh, d: rd }, items: edItems };
+  document.getElementById('export-box').value = JSON.stringify(data, null, 2);
+}
+
+// Editor keys: E = toggle panel, F = place item
+document.addEventListener('keydown', e => {
+  if (!editorMode) return;
+  if (e.code === 'KeyE') {
+    if (edPanelOpen) {
+      edShowPanel(false);
+      canvas.requestPointerLock();
+    } else {
+      edShowPanel(true);
+    }
+  }
+  if (e.code === 'KeyF' && locked && !edPanelOpen) {
+    edPlace();
+  }
+});
+// P = enter editor from anywhere (shortcut)
+document.addEventListener('keydown', e => {
+  if (e.code === 'KeyP' && locked && !editorMode) {
+    edEnter();
+  }
+});
+</script>
+</body>
+</html>
